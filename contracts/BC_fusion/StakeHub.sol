@@ -36,6 +36,11 @@ interface IStakePool {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
+interface IGovToken {
+    function mint(address recipient, uint256 amount) external;
+    function delegateVote(address delegator, address delegatee) external;
+}
+
 contract StakeHub is System {
     using EnumerableSet for EnumerableSet.AddressSet;
 
