@@ -76,7 +76,6 @@ interface StakeHub {
     function VALIDATOR_CONTRACT_ADDR() external view returns (address);
     function bscChainID() external view returns (uint16);
     function claim(address operatorAddress, uint256 requestNumber) external;
-    function claimGovBnb(address operatorAddress) external;
     function createValidator(
         address consensusAddress,
         bytes memory voteAddress,

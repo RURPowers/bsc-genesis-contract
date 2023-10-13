@@ -8,8 +8,8 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./System.sol";
 
 interface IGovBNB {
-    function mint(address to, uint256 amount) external;
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function mint(address validator, address delegator, uint256 amount) external;
+    function burn(address validator, address delegator, uint256 amount) external;
 }
 
 interface IBSCValidatorSet {
@@ -26,13 +26,12 @@ interface IBSCValidatorSet {
 interface IStakePool {
     function initialize(address operatorAddress, string memory moniker) external payable;
     function claim(address delegator, uint256 requestNumber) external returns (uint256);
-    function claimGovBnb(address delegator) external returns (uint256);
     function totalPooledBNB() external view returns (uint256);
     function getPooledBNBByShares(uint256 shares) external view returns (uint256);
     function getSharesByPooledBNB(uint256 bnbAmount) external view returns (uint256);
     function delegate(address delegator) external payable returns (uint256);
-    function undelegate(address delegator, uint256 shares) external returns (uint256, uint256);
-    function unbond(address delegator, uint256 shares) external returns (uint256, uint256);
+    function undelegate(address delegator, uint256 shares) external returns (uint256);
+    function unbond(address delegator, uint256 shares) external returns (uint256);
     function distributeReward(uint64 commissionRate) external payable;
     function slash(uint256 slashBnbAmount) external returns (uint256);
     function getSelfDelegationBNB() external view returns (uint256);
@@ -218,7 +217,7 @@ contract StakeHub is System {
 
         // check vote address
         // TODO: for test
-         require(_checkVoteAddress(voteAddress, blsProof), "INVALID_VOTE_ADDRESS");
+        // require(_checkVoteAddress(voteAddress, blsProof), "INVALID_VOTE_ADDRESS");
         _voteToOperator[voteAddress] = operatorAddress;
 
         // deploy stake pool
@@ -285,7 +284,7 @@ contract StakeHub is System {
         require(valInfo.updateTime + 1 days <= block.timestamp, "UPDATE_TOO_FREQUENTLY");
         require(_voteToOperator[newVoteAddress] == address(0), "DUPLICATE_VOTE_ADDRESS");
         // TODO: for test
-         require(_checkVoteAddress(newVoteAddress, blsProof), "INVALID_VOTE_ADDRESS");
+        // require(_checkVoteAddress(newVoteAddress, blsProof), "INVALID_VOTE_ADDRESS");
 
         bytes memory oldVoteAddress = valInfo.voteAddress;
         delete _voteToOperator[oldVoteAddress];
@@ -323,7 +322,7 @@ contract StakeHub is System {
         uint256 shares = IStakePool(valInfo.poolModule).delegate{value: bnbAmount}(delegator);
         emit Delegated(operatorAddress, delegator, shares, bnbAmount);
 
-        IGovBNB(govBNB).mint(delegator, bnbAmount);
+        IGovBNB(govBNB).mint(operatorAddress, delegator, bnbAmount);
     }
 
     function undelegate(address operatorAddress, uint256 shares) public onlyInitialized validatorExist(operatorAddress) whenNotPaused {
@@ -333,7 +332,7 @@ contract StakeHub is System {
         Validator memory valInfo = _validators[operatorAddress];
         require(IStakePool(valInfo.poolModule).getPooledBNBByShares(shares) >= minDelegationBNBChange, "INVALID_UNDELEGATION_AMOUNT");
 
-        (uint256 bnbAmount, uint256 govBnbAmount) = IStakePool(valInfo.poolModule).undelegate(delegator, shares);
+        uint256 bnbAmount = IStakePool(valInfo.poolModule).undelegate(delegator, shares);
         emit Undelegated(operatorAddress, delegator, shares, bnbAmount);
 
         if (delegator == operatorAddress && IStakePool(valInfo.poolModule).getSelfDelegationBNB() < minSelfDelegationBNB) {
@@ -342,7 +341,7 @@ contract StakeHub is System {
             emit ValidatorJailed(operatorAddress);
         }
 
-        IGovBNB(govBNB).transferFrom(delegator, DEAD_ADDRESS, govBnbAmount);
+        IGovBNB(govBNB).burn(operatorAddress, delegator, bnbAmount);
     }
 
     function redelegate(address srcValidator, address dstValidator, uint256 shares) public onlyInitialized validatorExist(srcValidator) validatorExist(dstValidator) validatorNotJailed(dstValidator) whenNotPaused {
@@ -353,13 +352,12 @@ contract StakeHub is System {
         Validator memory dstValInfo = _validators[dstValidator];
         require(IStakePool(srcValInfo.poolModule).getPooledBNBByShares(shares) >= minDelegationBNBChange, "INVALID_REDELEGATION_AMOUNT");
 
-        (uint256 bnbAmount, uint256 govBnbAmount) = IStakePool(srcValInfo.poolModule).unbond(delegator, shares);
+        uint256 bnbAmount = IStakePool(srcValInfo.poolModule).unbond(delegator, shares);
         uint256 newShares = IStakePool(dstValInfo.poolModule).delegate{value: bnbAmount}(delegator);
         emit Redelegated(srcValidator, dstValidator, delegator, shares, newShares, bnbAmount);
 
-        if (bnbAmount > govBnbAmount) {
-            IGovBNB(govBNB).mint(delegator, bnbAmount - govBnbAmount);
-        }
+        IGovBNB(govBNB).burn(srcValidator, delegator, bnbAmount);
+        IGovBNB(govBNB).mint(dstValidator, delegator, bnbAmount);
     }
 
     /**
@@ -368,12 +366,6 @@ contract StakeHub is System {
     function claim(address operatorAddress, uint256 requestNumber) external onlyInitialized validatorExist(operatorAddress) {
         uint256 bnbAmount = IStakePool(_validators[operatorAddress].poolModule).claim(msg.sender, requestNumber);
         emit Claimed(operatorAddress, msg.sender, bnbAmount);
-    }
-
-    function claimGovBnb(address operatorAddress) external onlyInitialized validatorExist(operatorAddress) {
-        address delegator = msg.sender;
-        uint256 govBnbAmount = IStakePool(_validators[operatorAddress].poolModule).claimGovBnb(delegator);
-        IGovBNB(govBNB).mint(delegator, govBnbAmount);
     }
 
     function upgradePoolImplementation() external onlyInitialized validatorExist(msg.sender) {

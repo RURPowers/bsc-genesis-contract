@@ -17,13 +17,13 @@ interface IStakePool {
 contract MockGovBNB is ERC20 {
     constructor() ERC20("MockGovBNB", "MockGovBNB") {}
 
-    function mint(address account, uint256 amount) external {
-        _mint(account, amount);
+    function mint(address validator, address delegator, uint256 amount) external {
+        _mint(delegator, amount);
     }
 
-    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
-        _transfer(from, to, amount);
-        return true;
+    function burn(address validator, address delegator, uint256 amount) external {
+        amount = amount < balanceOf(delegator) ? amount : balanceOf(delegator);
+        _burn(delegator, amount);
     }
 }
 
@@ -33,7 +33,7 @@ contract StakeHubTest is Deployer {
 
     event ValidatorCreated(address indexed consensusAddress, address indexed operatorAddress, address indexed poolModule, bytes voteAddress);
     event ConsensusAddressEdited(address indexed operatorAddress, address indexed oldAddress, address indexed newAddress);
-    event CommissionRateEdited(address indexed operatorAddress, uint256 commissionRate);
+    event CommissionRateEdited(address indexed operatorAddress, uint64 commissionRate);
     event DescriptionEdited(address indexed operatorAddress);
     event VoteAddressEdited(address indexed operatorAddress, bytes newVoteAddress);
     event Delegated(address indexed operatorAddress, address indexed delegator, uint256 shares, uint256 bnbAmount);
@@ -228,15 +228,7 @@ contract StakeHubTest is Deployer {
         uint256 realBnbAmount = IStakePool(pool).getPooledBNBByShares(shares);
         assertEq(realBnbAmount, expectedBnbAmount);
 
-        // 4. claim govBNB
-        uint256 balanceBefore = IERC20(govBNB).balanceOf(delegator);
-        assertEq(balanceBefore, 100 ether);
-        vm.prank(delegator);
-        stakeHub.claimGovBnb(validator);
-        uint256 balanceAfter = IERC20(govBNB).balanceOf(delegator);
-        assertEq(balanceAfter, expectedBnbAmount);
-
-        // 5. undelegate and submit new delegate
+        // 4. undelegate and submit new delegate
         vm.prank(delegator);
         stakeHub.undelegate(validator, shares);
 
